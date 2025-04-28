@@ -7,7 +7,8 @@ import moondream as md
 
 @st.cache_resource
 def load_model():
-    return md.vl(api_key="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlfaWQiOiI1YTk4NjkzNi02ZWRmLTQwYWUtODQwYS00NzU3YzBmODFmYjQiLCJvcmdfaWQiOiJLTWoxVHhTMGF1ZVN4MkVnekdZMjZnZVNYTFJWUnhyZCIsImlhdCI6MTc0NTgzMDk1NiwidmVyIjoxfQ.sT7l7x4WGAfNfy7IGyar-JaAG8JKCHYaEEyhgFCQvf4")
+    api_key = st.secrets["MOONDREAM_API_KEY"]
+    return md.vl(api_key=api_key)
 
 model = load_model()
 
