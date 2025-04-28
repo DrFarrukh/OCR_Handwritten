@@ -1,0 +1,6 @@
+moondream
+Pillow
+streamlit
+sentence-transformers
+scikit-learn
+numpy
