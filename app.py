@@ -176,7 +176,10 @@ This enhanced system uses advanced analysis to evaluate student answers based on
 - **Perspective Analysis**: Whether multiple viewpoints or approaches are presented
 - **Contradiction Detection**: Identifying misconceptions in student answers
 
-The system is designed to recognize and reward different explanatory styles and multiple perspectives.
+The system supports multiple question types:
+- **Text**: Theory questions with written explanations
+- **Numerical**: Mathematical problems with numerical answers and tolerance settings
+- **Code**: Programming questions with syntax and logic analysis
 """)
 
 # Sidebar
@@ -200,15 +203,55 @@ with st.sidebar:
         help="Maximum points for this question"
     )
     
-    # Grading threshold
-    threshold = st.slider(
-        "Similarity Threshold",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.7,
-        step=0.05,
-        help="Minimum similarity required for partial credit"
-    )
+    # Type-specific settings
+    if question_type == "numerical":
+        # Numerical tolerance setting
+        tolerance = st.slider(
+            "Numerical Tolerance",
+            min_value=0.0,
+            max_value=0.2,
+            value=0.01,
+            step=0.01,
+            help="Acceptable margin of error for numerical answers"
+        )
+        
+        # Partial credit threshold
+        partial_credit_threshold = st.slider(
+            "Partial Credit Threshold",
+            min_value=0.0,
+            max_value=0.5,
+            value=0.1,
+            step=0.05,
+            help="Maximum error ratio for partial credit (as fraction of correct answer)"
+        )
+    elif question_type == "code":
+        # Code similarity threshold
+        code_threshold = st.slider(
+            "Code Similarity Threshold",
+            min_value=0.5,
+            max_value=0.9,
+            value=0.7,
+            step=0.05,
+            help="Minimum similarity required for code to be considered correct"
+        )
+        
+        # Code language selection
+        code_language = st.selectbox(
+            "Programming Language",
+            ["Python", "JavaScript", "Java", "C++", "SQL", "Other"],
+            index=0,
+            help="Select the programming language for syntax highlighting"
+        )
+    else:  # text questions
+        # Grading threshold for text
+        threshold = st.slider(
+            "Similarity Threshold",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.7,
+            step=0.05,
+            help="Minimum similarity required for partial credit"
+        )
     
     st.divider()
     
@@ -256,11 +299,45 @@ with tab1:
     
     with col1:
         st.subheader("Correct Answer")
-        correct_answer = st.text_area(
-            "Enter the correct answer",
-            value=st.session_state.get('correct_answer', ''),
-            height=200
-        )
+        
+        if question_type == "numerical":
+            # For numerical questions, use a number input
+            correct_answer = st.text_input(
+                "Enter the correct numerical answer",
+                value=st.session_state.get('correct_answer', ''),
+                help="For complex expressions, enter the final numerical result"
+            )
+            
+            # Option to show work/explanation
+            with st.expander("Add explanation or formula (optional)"):
+                correct_explanation = st.text_area(
+                    "Explanation or formula",
+                    height=100,
+                    help="Add the formula or steps to arrive at the answer"
+                )
+                if correct_explanation:
+                    correct_answer += "\n\nExplanation: " + correct_explanation
+                    
+        elif question_type == "code":
+            # For code questions, use a code editor
+            correct_answer = st.text_area(
+                "Enter the correct code solution",
+                value=st.session_state.get('correct_answer', ''),
+                height=300,
+                help="Enter a working code solution"
+            )
+            
+            # Show with syntax highlighting
+            if correct_answer:
+                with st.expander("Preview with syntax highlighting"):
+                    st.code(correct_answer, language=code_language.lower() if code_language != "Other" else None)
+        else:
+            # For text questions, use a standard text area
+            correct_answer = st.text_area(
+                "Enter the correct answer",
+                value=st.session_state.get('correct_answer', ''),
+                height=200
+            )
     
     with col2:
         st.subheader("Student Answer")
@@ -271,13 +348,46 @@ with tab1:
         )
         
         if answer_input_method == "Text":
-            # Text input for student answer
-            student_answer = st.text_area(
-                "Student Answer",
-                value=st.session_state.student_answer if 'student_answer' in st.session_state else "",
-                height=300,
-                placeholder="Enter the student's answer here..."
-            )
+            # Different input methods based on question type
+            if question_type == "numerical":
+                # For numerical questions, use a text input for the answer
+                student_answer = st.text_input(
+                    "Student's numerical answer",
+                    value=st.session_state.student_answer if 'student_answer' in st.session_state else "",
+                    placeholder="Enter the student's numerical answer..."
+                )
+                
+                # Option to include student's work/explanation
+                with st.expander("Add student's work or explanation (optional)"):
+                    student_explanation = st.text_area(
+                        "Student's work or explanation",
+                        height=150,
+                        placeholder="Enter the student's work or explanation..."
+                    )
+                    if student_explanation:
+                        student_answer += "\n\nWork: " + student_explanation
+                        
+            elif question_type == "code":
+                # For code questions, use a code editor
+                student_answer = st.text_area(
+                    "Student's code solution",
+                    value=st.session_state.student_answer if 'student_answer' in st.session_state else "",
+                    height=300,
+                    placeholder="Enter the student's code here..."
+                )
+                
+                # Show with syntax highlighting
+                if student_answer:
+                    with st.expander("Preview with syntax highlighting"):
+                        st.code(student_answer, language=code_language.lower() if code_language != "Other" else None)
+            else:
+                # For text questions, use a standard text area
+                student_answer = st.text_area(
+                    "Student Answer",
+                    value=st.session_state.student_answer if 'student_answer' in st.session_state else "",
+                    height=300,
+                    placeholder="Enter the student's answer here..."
+                )
         else:
             # Image upload for handwritten answers
             uploaded_image = st.file_uploader(
@@ -469,21 +579,135 @@ with tab1:
             
             # Use st.cache_data to cache grading results for the same inputs
             @st.cache_data
-            def grade_with_cache(q_type, student_ans, correct_ans, pts):
+            def grade_with_cache(q_type, student_ans, correct_ans, pts, **kwargs):
                 start_time = time()
                 grader = get_grader()
                 
-                # The semantic_similarity_grading method doesn't accept question_type parameter
-                # Instead, it uses the evaluator internally with the correct question type
-                result = grader.semantic_similarity_grading(student_ans, correct_ans, points=pts)
+                # Route to the appropriate grading method based on question type
+                if q_type == "numerical":
+                    # Extract numerical grading parameters
+                    tolerance = kwargs.get('tolerance', 0.01)
+                    partial_credit_threshold = kwargs.get('partial_credit_threshold', 0.1)
+                    
+                    # Use numerical grading method
+                    score = grader.numerical_grading(student_ans, correct_ans, pts, tolerance=tolerance)
+                    
+                    # Create detailed feedback for numerical questions
+                    try:
+                        student_num = float(grader.extract_answer(student_ans))
+                        correct_num = float(grader.extract_answer(correct_ans))
+                        absolute_error = abs(student_num - correct_num)
+                        relative_error = absolute_error / correct_num if correct_num != 0 else float('inf')
+                        
+                        feedback = {
+                            "score": score,
+                            "max_score": pts,
+                            "percentage": (score / pts) * 100,
+                            "question_feedback": [{
+                                "student_answer": student_ans,
+                                "correct_answer": correct_ans,
+                                "absolute_error": absolute_error,
+                                "relative_error": relative_error,
+                                "within_tolerance": absolute_error <= tolerance,
+                                "detailed_feedback": {
+                                    "student_value": student_num,
+                                    "correct_value": correct_num,
+                                    "tolerance_used": tolerance,
+                                    "partial_credit_threshold": partial_credit_threshold,
+                                    "received_partial_credit": relative_error <= partial_credit_threshold and absolute_error > tolerance,
+                                    "grading_explanation": "Full credit is awarded when the answer is within the specified tolerance. "
+                                                           "Partial credit is awarded when the error is within the partial credit threshold."
+                                }
+                            }]
+                        }
+                    except ValueError:
+                        # Handle case where answer isn't a valid number
+                        feedback = {
+                            "score": 0,
+                            "max_score": pts,
+                            "percentage": 0,
+                            "question_feedback": [{
+                                "student_answer": student_ans,
+                                "correct_answer": correct_ans,
+                                "detailed_feedback": {
+                                    "error": "Could not convert answer to a number",
+                                    "grading_explanation": "The answer provided could not be interpreted as a valid numerical value."
+                                }
+                            }]
+                        }
+                        
+                elif q_type == "code":
+                    # Extract code grading parameters
+                    threshold = kwargs.get('threshold', 0.7)
+                    language = kwargs.get('language', 'Python')
+                    
+                    # Use code grading method
+                    score = grader.code_grading(student_ans, correct_ans, pts, threshold=threshold)
+                    
+                    # Get similarity for feedback
+                    similarity = grader.evaluator.compute_similarity(student_ans, correct_ans, question_type="code")
+                    
+                    # Create detailed feedback for code questions
+                    feedback = {
+                        "score": score,
+                        "max_score": pts,
+                        "percentage": (score / pts) * 100,
+                        "question_feedback": [{
+                            "student_answer": student_ans,
+                            "correct_answer": correct_ans,
+                            "similarity": similarity,
+                            "detailed_feedback": {
+                                "code_similarity": similarity,
+                                "language": language,
+                                "threshold_used": threshold,
+                                "grading_explanation": "Code is evaluated based on semantic similarity, syntax, and logical structure. "
+                                                       "Higher similarity scores indicate closer matches to the expected solution."
+                            }
+                        }]
+                    }
+                else:
+                    # For text questions, use semantic similarity grading
+                    result = grader.semantic_similarity_grading(student_ans, correct_ans, points=pts)
+                    
+                    # Format the result as expected
+                    if isinstance(result, tuple) and len(result) == 2:
+                        score, detailed_feedback = result
+                        feedback = {
+                            "score": score,
+                            "max_score": pts,
+                            "percentage": (score / pts) * 100,
+                            "question_feedback": [{
+                                "student_answer": student_ans,
+                                "correct_answer": correct_ans,
+                                "detailed_feedback": detailed_feedback
+                            }]
+                        }
+                    else:
+                        # Fallback if the result format is unexpected
+                        feedback = {
+                            "score": result,
+                            "max_score": pts,
+                            "percentage": (result / pts) * 100
+                        }
                 
                 processing_time = time() - start_time
                 st.session_state.processing_time = processing_time
-                return result
+                return feedback
             
-            # Grade the answer with caching
+            # Grade the answer with caching, passing type-specific parameters
             with st.spinner(" Analyzing answer... This may take a few seconds."):
-                result = grade_with_cache(question_type, student_answer, correct_answer, points)
+                if question_type == "numerical":
+                    # Pass numerical-specific parameters
+                    result = grade_with_cache(question_type, student_answer, correct_answer, points, 
+                                              tolerance=tolerance, partial_credit_threshold=partial_credit_threshold)
+                elif question_type == "code":
+                    # Pass code-specific parameters
+                    result = grade_with_cache(question_type, student_answer, correct_answer, points,
+                                              threshold=code_threshold, language=code_language)
+                else:
+                    # Text questions
+                    result = grade_with_cache(question_type, student_answer, correct_answer, points,
+                                              threshold=threshold)
             
             # Handle the result - grade_question returns a tuple (score, feedback) for text questions
             if isinstance(result, tuple) and len(result) == 2:
@@ -524,7 +748,7 @@ with tab1:
             st.session_state.history.append(history_item)
             
             # Display result with processing time
-            st.success(f"✅ Grading complete in {st.session_state.processing_time:.2f} seconds! Score: {result['score']}/{result['max_score']} ({result['percentage']:.1f}%)")
+            st.success(f" Grading complete in {st.session_state.processing_time:.2f} seconds! Score: {result['score']}/{result['max_score']} ({result['percentage']:.1f}%)")
             
             # Display metrics
             metric_cols = st.columns(4)
@@ -570,67 +794,108 @@ with tab1:
                 st.info("""
                 **Theory Question Grading:** This answer was evaluated using our advanced concept-based analysis system:
                 
-                1. **Semantic Similarity** (35%): Comparing the meaning of your answer to the correct answer
-                2. **Concept Coverage** (30%): Identifying which key concepts you included
-                3. **Relationship Analysis** (15%): Evaluating how well you explained connections between concepts
-                4. **Perspective Analysis** (20%): Assessing different viewpoints or approaches in your answer
-                5. **Contradiction Detection**: Checking for inconsistencies in your explanation
+                1. **Semantic Similarity**: How closely the meaning matches the correct answer
+                2. **Concept Coverage**: Which key concepts from the correct answer are included
+                3. **Relationship Analysis**: How well connections between concepts are explained
+                4. **Multiple Perspectives**: Whether different viewpoints or approaches are presented
+                5. **Contradiction Detection**: Identifying misconceptions in the student's answer
                 
-                The system also awards bonus points for exceptional performance in specific areas. The final score is a weighted 
-                combination of these factors, prioritizing conceptual understanding over surface-level wording.
+                The final score is a weighted combination of these factors, with bonuses for exceptional performance.
                 """)
             elif question_type == 'code':
                 st.info("""
-                **Code Question Grading:** This answer was evaluated using CodeBERT to analyze code structure, 
-                syntax, and logic. The system looks beyond exact character matches to understand the semantic 
-                meaning and functionality of the code.
+                **Code Question Grading:** This answer was evaluated using specialized code analysis that considers:
+                
+                1. **Semantic Similarity**: How closely the code's functionality matches the expected solution
+                2. **Syntactic Structure**: Proper use of language syntax and coding conventions
+                3. **Logical Flow**: Correct implementation of algorithms and control structures
+                4. **Efficiency**: How optimal the solution is compared to the expected answer
+                
+                The system looks beyond exact character matches to understand the semantic meaning and functionality of the code.
+                The grading scale rewards solutions that achieve the same result even if the implementation differs from the model solution.
                 """)
             elif question_type == 'numerical':
-                st.info("""
+                # Get tolerance and partial credit threshold from the feedback if available
+                tolerance_used = None
+                partial_threshold = None
+                if 'question_feedback' in result and result['question_feedback']:
+                    feedback = result['question_feedback'][0]
+                    if 'detailed_feedback' in feedback:
+                        detailed = feedback['detailed_feedback']
+                        tolerance_used = detailed.get('tolerance_used')
+                        partial_threshold = detailed.get('partial_credit_threshold')
+                
+                tolerance_text = f"{tolerance_used:.2%}" if tolerance_used is not None else "a small margin"
+                partial_text = f"{partial_threshold:.0%}" if partial_threshold is not None else "10%"
+                
+                st.info(f"""
                 **Numerical Question Grading:** This answer was evaluated based on numerical accuracy with 
-                tolerance for minor calculation errors. Partial credit may be awarded for answers that are close 
-                to the correct value.
+                tolerance for small errors. 
+                
+                1. **Full Credit**: Awarded when the answer is within {tolerance_text} of the correct value
+                2. **Partial Credit**: Awarded when the answer is within {partial_text} of the correct value
+                3. **No Credit**: Given when the answer falls outside these ranges or is not a valid number
+                
+                The system considers both the final numerical value and the student's work/explanation when provided.
                 """)
 
             # Detailed feedback in an expander
-            with st.expander("📝 Raw Feedback Data"):
+            with st.expander(" Raw Feedback Data"):
                 st.json(result)
-
+            
             # Advanced analysis dashboard
             if 'question_feedback' in result and result['question_feedback']:
                 feedback = result['question_feedback'][0]
 
                 # Create tabs for different analysis types
-                analysis_tabs = st.tabs(["📊 Similarity Analysis", "🧩 Concept Coverage", "🔄 Relationship Analysis", "👁️ Multiple Perspectives", "⚠️ Contradictions", "🎯 Grading Explanation"])
+                analysis_tabs = st.tabs([" Similarity Analysis", " Concept Coverage", " Relationship Analysis", " Multiple Perspectives", " Contradictions", " Grading Explanation"])
 
                 # Tab 1: Similarity Analysis
                 with analysis_tabs[0]:
                     st.markdown("### Similarity Analysis")
 
-                    # Show similarity metrics
-                    if 'similarity_percentage' in feedback:
-                        col1, col2, col3 = st.columns(3)
-
-                        with col1:
-                            st.metric(
-                                "Raw Similarity", 
-                                f"{feedback['similarity_percentage']:.1f}%",
-                                help="Initial text similarity score"
-                            )
-
-                        # Show adjusted similarity if available
-                        if 'adjusted_similarity_percentage' in feedback:
-                            with col2:
-                                st.metric(
-                                    "Adjusted Similarity", 
-                                    f"{feedback['adjusted_similarity_percentage']:.1f}%",
-                                    delta=f"{feedback['adjusted_similarity_percentage'] - feedback['similarity_percentage']:.1f}%" 
-                                        if 'contradiction_reasons' in feedback and feedback['contradiction_reasons'] else None,
-                                    delta_color="inverse" if 'contradiction_reasons' in feedback and feedback['contradiction_reasons'] else "normal",
-                                    help="Similarity after contradiction penalties"
-                                )
-
-                        # Show weighted score if available
+                    # Show metrics based on question type
+                    if question_type == 'numerical':
+                        if 'absolute_error' in feedback and 'relative_error' in feedback:
+                            similarity_data = {
+                                "Metric": ["Student Value", "Correct Value", "Absolute Error", "Relative Error", "Within Tolerance"],
+                                "Value": [
+                                    f"{feedback['detailed_feedback'].get('student_value', 'N/A')}",
+                                    f"{feedback['detailed_feedback'].get('correct_value', 'N/A')}",
+                                    f"{feedback['absolute_error']:.6f}",
+                                    f"{feedback['relative_error']:.2%}",
+                                    "Yes" if feedback['within_tolerance'] else "No"
+                                ]
+                            }
+                        else:
+                            similarity_data = {
+                                "Metric": ["Error"],
+                                "Value": [feedback['detailed_feedback'].get('error', 'Unknown error')]
+                            }
+                    elif question_type == 'code':
+                        similarity_data = {
+                            "Metric": ["Code Similarity", "Programming Language", "Similarity Threshold"],
+                            "Value": [
+                                f"{feedback['similarity'] * 100:.1f}%",
+                                f"{feedback['detailed_feedback'].get('language', 'Unknown')}",
+                                f"{feedback['detailed_feedback'].get('threshold_used', 0.7) * 100:.0f}%"
+                            ]
+                        }
+                    else:  # text questions
+                        similarity_data = {
+                            "Metric": ["Raw Similarity", "Adjusted Similarity"],
+                            "Value": [
+                                f"{feedback.get('raw_similarity', 0) * 100:.1f}%",
+                                f"{feedback.get('adjusted_similarity', 0) * 100:.1f}%"
+                            ]
+                        }
+                    
+                    # Create a DataFrame and display it
+                    similarity_df = pd.DataFrame(similarity_data)
+                    st.table(similarity_df)
+                    
+                    # Show additional metrics for text questions
+                    if question_type == 'text':
                         if 'detailed_feedback' in feedback and 'weighted_score' in feedback['detailed_feedback']:
                             with col3:
                                 weighted_score = feedback['detailed_feedback']['weighted_score'] * 100
@@ -959,6 +1224,45 @@ with st.sidebar:
         correct = """Democratic governments hold elections to allow citizens to choose their representatives and leaders through a structured, periodic, and participatory process. Elections are a core mechanism of accountability, enabling the transfer or renewal of political power based on the will of the people. They ensure legitimacy of the government, uphold political rights, and are a fundamental expression of the democratic principle that sovereignty resides with the people."""
         
         student = """From an institutional theory lens, elections in democratic systems are not just tools for selecting leaders—they are instruments for stabilizing political systems, resolving societal conflicts peacefully, and preventing authoritarian consolidation. By providing a regular, legal method for contesting power, elections serve as pressure valves in pluralistic societies. They reduce the likelihood of violence by offering all political factions a legitimate path to influence and representation."""
+        
+        st.session_state.correct_answer = correct
+        st.session_state.student_answer = student
+        st.rerun()
+        
+    # Add numerical example
+    if st.button("📊 Numerical Example: Gravity Calculation"):
+        correct = "9.8"
+        student = "9.79"
+        
+        st.session_state.correct_answer = correct
+        st.session_state.student_answer = student
+        st.rerun()
+    
+    # Add code example
+    if st.button("💻 Code Example: Fibonacci Function"):
+        correct = """def fibonacci(n):
+    if n <= 0:
+        return 0
+    elif n == 1:
+        return 1
+    else:
+        return fibonacci(n-1) + fibonacci(n-2)
+
+# Calculate the 10th Fibonacci number
+result = fibonacci(10)
+print(result)  # Should output 55"""
+        
+        student = """def fibonacci(n):
+    if n <= 1:
+        return n
+    
+    a, b = 0, 1
+    for i in range(2, n+1):
+        a, b = b, a + b
+    return b
+
+# Get the 10th number
+print(fibonacci(10))  # Outputs 55"""
         
         st.session_state.correct_answer = correct
         st.session_state.student_answer = student
