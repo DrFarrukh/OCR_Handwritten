@@ -1,0 +1,8 @@
+[server]
+# Add PyTorch modules to the folder watch blacklist
+folderWatchBlacklist = ["torch", "torch._classes", "torch.classes", "sentence_transformers"]
+
+[runner]
+# Increase the memory limit for the Streamlit runner
+magicEnabled = true
+

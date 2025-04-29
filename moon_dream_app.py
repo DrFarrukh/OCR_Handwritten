@@ -7,7 +7,14 @@ import moondream as md
 
 @st.cache_resource
 def load_model():
-    api_key = st.secrets["MOONDREAM_API_KEY"]
+    # Get API key from Streamlit secrets
+    try:
+        api_key = st.secrets["moondream"]["api_key"]
+    except Exception as e:
+        st.error(f"Error loading API key from secrets: {e}")
+        st.info("Please make sure you have created a .streamlit/secrets.toml file with your API key")
+        return None
+    
     return md.vl(api_key=api_key)
 
 model = load_model()
